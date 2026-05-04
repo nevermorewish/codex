@@ -1,0 +1,100 @@
+name: FrogClaw app-server release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag to publish, for example codex-app-server-v0.1.0
+        required: true
+        default: codex-app-server-v0.1.0
+  push:
+    tags:
+      - "codex-app-server-v*.*.*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: short
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-pc-windows-msvc
+          - aarch64-pc-windows-msvc
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: frogclaw-app-server
+          workspaces: codex-rs -> target
+          key: ${{ matrix.target }}
+
+      - name: Build codex-app-server
+        shell: pwsh
+        run: |
+          cargo build `
+            --manifest-path codex-rs/Cargo.toml `
+            -p codex-app-server `
+            --release `
+            --target ${{ matrix.target }}
+
+      - name: Stage binary
+        shell: pwsh
+        run: |
+          $out = "dist"
+          New-Item -ItemType Directory -Path $out -Force | Out-Null
+          Copy-Item `
+            -LiteralPath "codex-rs/target/${{ matrix.target }}/release/codex-app-server.exe" `
+            -Destination "$out/codex-app-server-${{ matrix.target }}.exe"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-app-server-${{ matrix.target }}
+          if-no-files-found: error
+          path: dist/codex-app-server-${{ matrix.target }}.exe
+
+  publish:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ inputs.release_tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release.outputs.tag }}
+          name: Codex app-server ${{ steps.release.outputs.tag }}
+          draft: false
+          prerelease: false
+          files: dist/codex-app-server-*.exe
