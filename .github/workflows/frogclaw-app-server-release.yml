@@ -132,11 +132,12 @@ jobs:
 
       - name: Build codex-app-server
         shell: bash
-        env:
-          CARGO_BUILD_JOBS: ${{ matrix.target == 'aarch64-unknown-linux-musl' && '2' || '' }}
-          CARGO_PROFILE_RELEASE_LTO: ${{ matrix.target == 'aarch64-unknown-linux-musl' && 'thin' || '' }}
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ matrix.target == 'aarch64-unknown-linux-musl' && '16' || '' }}
         run: |
+          if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-musl" ]]; then
+            export CARGO_BUILD_JOBS=2
+            export CARGO_PROFILE_RELEASE_LTO=thin
+            export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
+          fi
           cargo build \
             --manifest-path codex-rs/Cargo.toml \
             --bin codex-app-server \
