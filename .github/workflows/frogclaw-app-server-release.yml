@@ -21,13 +21,29 @@ env:
 jobs:
   build:
     name: Build ${{ matrix.target }}
-    runs-on: windows-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        target:
-          - x86_64-pc-windows-msvc
-          - aarch64-pc-windows-msvc
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            ext: ""
+          - os: ubuntu-22.04
+            target: aarch64-unknown-linux-gnu
+            ext: ""
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            ext: ""
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            ext: ""
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            ext: ".exe"
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            ext: ".exe"
 
     steps:
       - uses: actions/checkout@v4
@@ -44,30 +60,40 @@ jobs:
           workspaces: codex-rs -> target
           key: ${{ matrix.target }}
 
-      - name: Build codex-app-server
-        shell: pwsh
+      - name: Install Linux ARM64 cross tools
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
-          cargo build `
-            --manifest-path codex-rs/Cargo.toml `
-            -p codex-app-server `
-            --release `
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+      - name: Build codex-app-server
+        shell: bash
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+          CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
+          AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
+        run: |
+          cargo build \
+            --manifest-path codex-rs/Cargo.toml \
+            -p codex-app-server \
+            --release \
             --target ${{ matrix.target }}
 
       - name: Stage binary
-        shell: pwsh
+        shell: bash
         run: |
-          $out = "dist"
-          New-Item -ItemType Directory -Path $out -Force | Out-Null
-          Copy-Item `
-            -LiteralPath "codex-rs/target/${{ matrix.target }}/release/codex-app-server.exe" `
-            -Destination "$out/codex-app-server-${{ matrix.target }}.exe"
+          mkdir -p dist
+          cp \
+            "codex-rs/target/${{ matrix.target }}/release/codex-app-server${{ matrix.ext }}" \
+            "dist/codex-app-server-${{ matrix.target }}${{ matrix.ext }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: codex-app-server-${{ matrix.target }}
           if-no-files-found: error
-          path: dist/codex-app-server-${{ matrix.target }}.exe
+          path: dist/codex-app-server-${{ matrix.target }}${{ matrix.ext }}
 
   publish:
     name: Publish release
@@ -97,4 +123,4 @@ jobs:
           name: Codex app-server ${{ steps.release.outputs.tag }}
           draft: false
           prerelease: false
-          files: dist/codex-app-server-*.exe
+          files: dist/codex-app-server-*
